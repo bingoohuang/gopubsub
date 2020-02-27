@@ -1,4 +1,5 @@
-package messagebus
+// nolint gomnd
+package gopubsub
 
 import (
 	"strconv"
@@ -10,9 +11,10 @@ func BenchmarkPublish(b *testing.B) {
 	bus := New(b.N)
 
 	var wg sync.WaitGroup
+
 	wg.Add(b.N)
 
-	_ = bus.Subscribe("topic", func() {
+	_ = bus.Sub("topic", func() {
 		wg.Done()
 	})
 
@@ -20,7 +22,7 @@ func BenchmarkPublish(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			bus.Publish("topic")
+			_ = bus.Pub("topic")
 		}
 	})
 
@@ -34,7 +36,7 @@ func BenchmarkSubscribe(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = bus.Subscribe("topic", func() {})
+			_ = bus.Sub("topic", func() {})
 		}
 	})
 }
@@ -48,7 +50,7 @@ func benchmark(b *testing.B, subscribersCount, topicsCount int) {
 
 	for i := 0; i < topicsCount; i++ {
 		for j := 0; j < subscribersCount; j++ {
-			_ = bus.Subscribe(strconv.Itoa(i), func() {
+			_ = bus.Sub(strconv.Itoa(i), func() {
 				wg.Done()
 			})
 		}
@@ -58,7 +60,7 @@ func benchmark(b *testing.B, subscribersCount, topicsCount int) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			bus.Publish(strconv.Itoa(topicsCount - 1))
+			_ = bus.Pub(strconv.Itoa(topicsCount - 1))
 		}
 	})
 

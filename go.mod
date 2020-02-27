@@ -1,3 +1,3 @@
-module github.com/vardius/message-bus
+module github.com/bingoohuang/gopubsub
 
 go 1.12

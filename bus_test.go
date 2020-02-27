@@ -1,4 +1,5 @@
-package messagebus
+// nolint gomnd
+package gopubsub
 
 import (
 	"errors"
@@ -19,11 +20,11 @@ func TestNew(t *testing.T) {
 func TestSubscribe(t *testing.T) {
 	bus := New(runtime.NumCPU())
 
-	if bus.Subscribe("test", func() {}) != nil {
+	if bus.Sub("test", func() {}) != nil {
 		t.Fail()
 	}
 
-	if bus.Subscribe("test", 2) == nil {
+	if bus.Sub("test", 2) == nil {
 		t.Fail()
 	}
 }
@@ -33,16 +34,16 @@ func TestUnsubscribe(t *testing.T) {
 
 	handler := func() {}
 
-	if err := bus.Subscribe("test", handler); err != nil {
+	if err := bus.Sub("test", handler); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := bus.Unsubscribe("test", handler); err != nil {
+	if err := bus.Unsub("test", handler); err != nil {
 		fmt.Println(err)
 		t.Fail()
 	}
 
-	if err := bus.Unsubscribe("non-existed", func() {}); err == nil {
+	if err := bus.Unsub("non-existed", func() {}); err == nil {
 		fmt.Println(err)
 		t.Fail()
 	}
@@ -53,7 +54,7 @@ func TestClose(t *testing.T) {
 
 	handler := func() {}
 
-	if err := bus.Subscribe("test", handler); err != nil {
+	if err := bus.Sub("test", handler); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,14 +64,14 @@ func TestClose(t *testing.T) {
 		t.Fail()
 	}
 
-	if 0 == len(original.handlers) {
-		fmt.Println("Did not subscribed handler to topic")
+	if len(original.handlers) == 0 {
+		fmt.Println("Did not subscribed handlerImpl to topic")
 		t.Fail()
 	}
 
 	bus.Close("test")
 
-	if 0 != len(original.handlers) {
+	if len(original.handlers) != 0 {
 		fmt.Println("Did not unsubscribed handlers from topic")
 		t.Fail()
 	}
@@ -80,26 +81,27 @@ func TestPublish(t *testing.T) {
 	bus := New(runtime.NumCPU())
 
 	var wg sync.WaitGroup
+
 	wg.Add(2)
 
 	first := false
 	second := false
 
-	if err := bus.Subscribe("topic", func(v bool) {
+	if err := bus.Sub("topic", func(v bool) {
 		defer wg.Done()
 		first = v
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := bus.Subscribe("topic", func(v bool) {
+	if err := bus.Sub("topic", func(v bool) {
 		defer wg.Done()
 		second = v
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	bus.Publish("topic", true)
+	_ = bus.Pub("topic", true)
 
 	wg.Wait()
 
@@ -110,7 +112,7 @@ func TestPublish(t *testing.T) {
 
 func TestHandleError(t *testing.T) {
 	bus := New(runtime.NumCPU())
-	if err := bus.Subscribe("topic", func(out chan<- error) {
+	if err := bus.Sub("topic", func(out chan<- error) {
 		out <- errors.New("I do throw error")
 	}); err != nil {
 		t.Fatal(err)
@@ -119,7 +121,7 @@ func TestHandleError(t *testing.T) {
 	out := make(chan error)
 	defer close(out)
 
-	bus.Publish("topic", out)
+	_ = bus.Pub("topic", out)
 
 	if <-out == nil {
 		t.Fail()

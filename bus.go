@@ -1,29 +1,57 @@
-package messagebus
+package gopubsub
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
 )
 
-// MessageBus implements publish/subscribe messaging paradigm
-type MessageBus interface {
-	// Publish publishes arguments to the given topic subscribers
-	// Publish block only when the buffer of one of the subscribers is full.
-	Publish(topic string, args ...interface{})
+// PubSub implements publish/subscribe messaging paradigm
+type PubSub interface {
+	// Pub publishes arguments to the given topic subscribers
+	// Pub block only when the buffer of one of the subscribers is full.
+	Pub(topic string, args ...interface{}) error
 	// Close unsubscribe all handlers from given topic
 	Close(topic string)
-	// Subscribe subscribes to the given topic
-	Subscribe(topic string, fn interface{}) error
-	// Unsubscribe unsubscribe handler from the given topic
-	Unsubscribe(topic string, fn interface{}) error
+	// Sub subscribes to the given topic
+	Sub(topic string, fn interface{}) error
+	// Unsub unsubscribe handlerImpl from the given topic
+	Unsub(topic string, fn interface{}) error
 }
 
-type handlersMap map[string][]*handler
+type handlersMap map[string][]handler
 
-type handler struct {
+type handler interface {
+	pub([]reflect.Value)
+	close()
+	isCallback(f reflect.Value) bool
+}
+
+type handlerImpl struct {
 	callback reflect.Value
 	queue    chan []reflect.Value
+}
+
+func makeHandle(fn interface{}, handlerQueueSize int) *handlerImpl {
+	h := &handlerImpl{
+		callback: reflect.ValueOf(fn),
+		queue:    make(chan []reflect.Value, handlerQueueSize),
+	}
+
+	go h.start()
+
+	return h
+}
+
+func (h *handlerImpl) pub(v []reflect.Value)           { h.queue <- v }
+func (h *handlerImpl) close()                          { close(h.queue) }
+func (h *handlerImpl) isCallback(f reflect.Value) bool { return h.callback == f }
+
+func (h *handlerImpl) start() {
+	for args := range h.queue {
+		h.callback.Call(args)
+	}
 }
 
 type messageBus struct {
@@ -32,34 +60,34 @@ type messageBus struct {
 	handlers         handlersMap
 }
 
-func (b *messageBus) Publish(topic string, args ...interface{}) {
+// ErrTopicNotExists is the error to indicate that the topic does not exist.
+var ErrTopicNotExists = errors.New("topic does not exist")
+
+func (b *messageBus) Pub(topic string, args ...interface{}) error {
 	rArgs := buildHandlerArgs(args)
 
 	b.mtx.RLock()
 	defer b.mtx.RUnlock()
 
-	if hs, ok := b.handlers[topic]; ok {
-		for _, h := range hs {
-			h.queue <- rArgs
-		}
+	hs, ok := b.handlers[topic]
+
+	if !ok {
+		return fmt.Errorf("topic %s doesn't exist %w", topic, ErrTopicNotExists)
 	}
+
+	for _, h := range hs {
+		h.pub(rArgs)
+	}
+
+	return nil
 }
 
-func (b *messageBus) Subscribe(topic string, fn interface{}) error {
+func (b *messageBus) Sub(topic string, fn interface{}) error {
 	if reflect.TypeOf(fn).Kind() != reflect.Func {
 		return fmt.Errorf("%s is not a reflect.Func", reflect.TypeOf(fn))
 	}
 
-	h := &handler{
-		callback: reflect.ValueOf(fn),
-		queue:    make(chan []reflect.Value, b.handlerQueueSize),
-	}
-
-	go func() {
-		for args := range h.queue {
-			h.callback.Call(args)
-		}
-	}()
+	h := makeHandle(fn, b.handlerQueueSize)
 
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
@@ -69,55 +97,61 @@ func (b *messageBus) Subscribe(topic string, fn interface{}) error {
 	return nil
 }
 
-func (b *messageBus) Unsubscribe(topic string, fn interface{}) error {
+func (b *messageBus) Unsub(topic string, fn interface{}) error {
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
 
-	rv := reflect.ValueOf(fn)
-
-	if _, ok := b.handlers[topic]; ok {
-		for i, h := range b.handlers[topic] {
-			if h.callback == rv {
-				close(h.queue)
-
-				b.handlers[topic] = append(b.handlers[topic][:i], b.handlers[topic][i+1:]...)
-			}
-		}
-
-		return nil
+	handlers, ok := b.handlers[topic]
+	if !ok {
+		return fmt.Errorf("topic %s doesn't exist %w", topic, ErrTopicNotExists)
 	}
 
-	return fmt.Errorf("topic %s doesn't exist", topic)
+	rv := reflect.ValueOf(fn)
+
+	for i, h := range handlers {
+		if h.isCallback(rv) {
+			h.close()
+
+			b.handlers[topic] = append(handlers[:i], handlers[i+1:]...)
+		}
+	}
+
+	if len(b.handlers[topic]) == 0 {
+		delete(b.handlers, topic)
+	}
+
+	return nil
 }
 
 func (b *messageBus) Close(topic string) {
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
 
-	if _, ok := b.handlers[topic]; ok {
-		for _, h := range b.handlers[topic] {
-			close(h.queue)
-		}
-
-		delete(b.handlers, topic)
-
+	handlers, ok := b.handlers[topic]
+	if !ok {
 		return
 	}
+
+	for _, h := range handlers {
+		h.close()
+	}
+
+	delete(b.handlers, topic)
 }
 
 func buildHandlerArgs(args []interface{}) []reflect.Value {
-	reflectedArgs := make([]reflect.Value, 0)
+	reflectedArgs := make([]reflect.Value, len(args))
 
-	for _, arg := range args {
-		reflectedArgs = append(reflectedArgs, reflect.ValueOf(arg))
+	for i, arg := range args {
+		reflectedArgs[i] = reflect.ValueOf(arg)
 	}
 
 	return reflectedArgs
 }
 
-// New creates new MessageBus
+// New creates new PubSub
 // handlerQueueSize sets buffered channel length per subscriber
-func New(handlerQueueSize int) MessageBus {
+func New(handlerQueueSize int) PubSub {
 	if handlerQueueSize == 0 {
 		panic("handlerQueueSize has to be greater then 0")
 	}
