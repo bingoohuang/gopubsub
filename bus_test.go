@@ -58,7 +58,7 @@ func TestClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	original, ok := bus.(*messageBus)
+	original, ok := bus.(*pubSub)
 	if !ok {
 		fmt.Println("Could not cast message bus to its original type")
 		t.Fail()

@@ -54,7 +54,7 @@ func (h *handlerImpl) start() {
 	}
 }
 
-type messageBus struct {
+type pubSub struct {
 	handlerQueueSize int
 	mtx              sync.RWMutex
 	handlers         handlersMap
@@ -63,7 +63,7 @@ type messageBus struct {
 // ErrTopicNotExists is the error to indicate that the topic does not exist.
 var ErrTopicNotExists = errors.New("topic does not exist")
 
-func (b *messageBus) Pub(topic string, args ...interface{}) error {
+func (b *pubSub) Pub(topic string, args ...interface{}) error {
 	rArgs := buildHandlerArgs(args)
 
 	b.mtx.RLock()
@@ -82,7 +82,7 @@ func (b *messageBus) Pub(topic string, args ...interface{}) error {
 	return nil
 }
 
-func (b *messageBus) Sub(topic string, fn interface{}) error {
+func (b *pubSub) Sub(topic string, fn interface{}) error {
 	if reflect.TypeOf(fn).Kind() != reflect.Func {
 		return fmt.Errorf("%s is not a reflect.Func", reflect.TypeOf(fn))
 	}
@@ -97,7 +97,7 @@ func (b *messageBus) Sub(topic string, fn interface{}) error {
 	return nil
 }
 
-func (b *messageBus) Unsub(topic string, fn interface{}) error {
+func (b *pubSub) Unsub(topic string, fn interface{}) error {
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
 
@@ -123,7 +123,7 @@ func (b *messageBus) Unsub(topic string, fn interface{}) error {
 	return nil
 }
 
-func (b *messageBus) Close(topic string) {
+func (b *pubSub) Close(topic string) {
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
 
@@ -156,7 +156,7 @@ func New(handlerQueueSize int) PubSub {
 		panic("handlerQueueSize has to be greater then 0")
 	}
 
-	return &messageBus{
+	return &pubSub{
 		handlerQueueSize: handlerQueueSize,
 		handlers:         make(handlersMap),
 	}
