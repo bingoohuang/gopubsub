@@ -16,6 +16,21 @@ func TestNew(t *testing.T) {
 		t.Fail()
 	}
 }
+func TestNewError(t *testing.T) {
+	defer func() {
+		if err := recover().(string); err != "handlerQueueSize has to be greater then 0" {
+			t.Fatalf("Wrong panic message: %s", err)
+		}
+	}()
+
+	New(0)
+}
+
+func TestCloseNoSubTopic(t *testing.T) {
+	bus := New(1)
+	bus.Pub("na", func() {})
+	bus.Close("na")
+}
 
 func TestSubscribe(t *testing.T) {
 	bus := New(runtime.NumCPU())
